@@ -31,7 +31,7 @@ export const webEntrypoints = [
   // ['tools/bench', 'main.tsx'],
 ]
 
-const webWasmPlugin = {
+const webWasmPlugin: esbuild.Plugin = {
   name: 'wasm',
   setup(build) {
     // Resolve ".wasm" files to a path with a namespace
