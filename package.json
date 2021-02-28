@@ -5,6 +5,7 @@
   "scripts": {
     "buildWeb": "npx ts-node --transpile-only src/cli/build/buildWeb.ts",
     "buildServer": "npx ts-node --transpile-only src/cli/build/buildServer.ts",
+    "dev": "npx ts-node --transpile-only src/cli/build/dev.ts",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
