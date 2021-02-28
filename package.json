@@ -1,0 +1,31 @@
+{
+  "name": "manchester-wasm",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "buildWeb": "npx ts-node --transpile-only src/cli/build/buildWeb.ts",
+    "buildServer": "npx ts-node --transpile-only src/cli/build/buildServer.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "BSD-3-Clause",
+  "dependencies": {
+    "@hapi/hapi": "^20.1.0",
+    "@hapi/inert": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/hapi__hapi": "^20.0.5",
+    "@types/hapi__inert": "^5.2.2",
+    "@typescript-eslint/eslint-plugin": "^4.15.2",
+    "@typescript-eslint/parser": "^4.15.2",
+    "chokidar": "^3.5.1",
+    "esbuild": "^0.8.53",
+    "eslint": "^7.21.0",
+    "eslint-config-prettier": "^8.1.0",
+    "eslint-plugin-import": "^2.22.1",
+    "eslint-plugin-prettier": "^3.3.1",
+    "prettier": "^2.2.1",
+    "ts-node": "^9.1.1",
+    "typescript": "^4.2.2"
+  }
+}
