@@ -15,11 +15,12 @@ const findProjectRoot = (): string => {
 }
 
 export const projectRootPath = findProjectRoot()
-export const gameSrcPath = path.join(projectRootPath, 'src')
+export const rsSrcPath = path.join(projectRootPath, 'rs')
+export const jsSrcPath = path.join(projectRootPath, 'src')
 export const buildOutputPath = path.join(projectRootPath, 'out')
 export const webOutputPath = path.join(buildOutputPath, 'web')
 export const serverOutputPath = path.join(buildOutputPath, 'server')
-export const webEphemeralPath = path.join(gameSrcPath, 'web', 'ephemeral')
+export const webEphemeralPath = path.join(jsSrcPath, 'web', 'ephemeral')
 export const serverBuildVersionPath = path.join(
   serverOutputPath,
   'buildVersion',
@@ -62,7 +63,7 @@ export const webBuildOpts: esbuild.BuildOptions = {
     'process.env.NODE_ENV': '"production"', // for react-dom
   },
   entryPoints: webEntrypoints.map(([dir, entryfile]) =>
-    path.join(gameSrcPath, dir, entryfile),
+    path.join(jsSrcPath, dir, entryfile),
   ),
   loader: {
     '.obj': 'text',
@@ -77,7 +78,7 @@ export const webBuildOpts: esbuild.BuildOptions = {
 
 export const serverBuildOpts: esbuild.BuildOptions = {
   bundle: true,
-  entryPoints: [path.join(gameSrcPath, 'server', 'main.ts')],
+  entryPoints: [path.join(jsSrcPath, 'server', 'main.ts')],
   outdir: serverOutputPath,
   platform: 'node',
   sourcemap: true,
@@ -101,7 +102,7 @@ export async function copyWebHtml(): Promise<void> {
         recursive: true,
       })
       await fs.promises.copyFile(
-        path.join(gameSrcPath, dir, 'index.html'),
+        path.join(jsSrcPath, dir, 'index.html'),
         path.join(webOutputPath, dir, 'index.html'),
       )
     }),

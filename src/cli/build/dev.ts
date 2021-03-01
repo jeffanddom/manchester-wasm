@@ -1,4 +1,4 @@
-import { ChildProcessWithoutNullStreams, spawn } from 'child_process'
+import { ChildProcess } from 'child_process'
 import * as fs from 'fs'
 import * as path from 'path'
 
@@ -9,7 +9,8 @@ import * as time from '../../util/time'
 
 import {
   copyWebHtml,
-  gameSrcPath,
+  jsSrcPath,
+  rsSrcPath,
   serverBuildOpts,
   serverOutputPath,
   updateWebBuildVersion,
@@ -17,14 +18,8 @@ import {
   webEphemeralPath,
   writeServerBuildVersion,
 } from './common'
-
-// Removes a newline from the end of a buffer, if it exists.
-const trimNewlineSuffix = (data: Buffer): Buffer => {
-  if (data[data.length - 1] === 10) {
-    return data.subarray(0, data.length - 1)
-  }
-  return data
-}
+import { DebouncedBuilder } from './DebouncedBuilder'
+import { SignalError, spawnAsync } from './spawnAsync'
 
 function getMtimeMs(filepath: string): number {
   const stats = fs.statSync(filepath)
@@ -38,10 +33,10 @@ function getMtimeMs(filepath: string): number {
 }
 
 class DevDaemon {
-  private building: boolean
-  private buildQueued: boolean
+  private jsBuilder: DebouncedBuilder
+  private rsBuilder: DebouncedBuilder
 
-  private server: ChildProcessWithoutNullStreams | undefined
+  private server: ChildProcess | undefined
   private incrementalBuilds:
     | {
         server: esbuild.BuildIncremental
@@ -50,46 +45,38 @@ class DevDaemon {
     | undefined
 
   constructor() {
-    this.building = false
-    this.buildQueued = false
+    this.jsBuilder = new DebouncedBuilder(async () => {
+      await this.jsBuild()
+    })
+    this.rsBuilder = new DebouncedBuilder(async () => {
+      await this.rsBuild()
+    })
   }
 
   public start(): void {
-    let debounce = false
-
     chokidar
-      .watch(gameSrcPath, { ignoreInitial: true, persistent: true })
+      .watch([rsSrcPath, jsSrcPath], { ignoreInitial: true, persistent: true })
       .on('all', (_event, filename) => {
         if (filename.startsWith(webEphemeralPath)) {
           return
         }
 
-        if (debounce) {
-          return
+        if (filename.startsWith(jsSrcPath)) {
+          this.jsBuilder.touch()
         }
 
-        debounce = true
-
-        setTimeout(() => {
-          debounce = false
-          this.rebuild()
-        }, 500)
+        if (filename.startsWith(rsSrcPath) && filename.endsWith('.rs')) {
+          this.rsBuilder.touch()
+        }
       })
 
-    this.rebuild()
+    this.jsBuild()
   }
 
-  private async rebuild(): Promise<void> {
-    // don't allow rebuild() to be called more than once
-    if (this.building) {
-      this.buildQueued = true
-      return
-    }
+  private async jsBuild(): Promise<void> {
+    const buildVersion = getMtimeMs(jsSrcPath).toString()
 
-    this.building = true
-    const buildVersion = getMtimeMs(gameSrcPath).toString()
-
-    console.log(`Spawning build jobs for build version ${buildVersion}...`)
+    console.log(`Spawning JS build jobs for build version ${buildVersion}...`)
     const start = time.current()
 
     let buildSuccess = false
@@ -101,20 +88,29 @@ class DevDaemon {
     }
 
     const elapsed = time.current() - start
-    console.log(`Build completed in ${elapsed.toFixed(3)}s`)
+    console.log(`JS build completed in ${elapsed.toFixed(3)}s`)
 
     if (buildSuccess) {
       this.restartServer()
     }
+  }
 
-    // allow rebuild() to be called again
-    this.building = false
+  private async rsBuild(): Promise<void> {
+    console.log(`Spawning Rust build...`)
+    const start = time.current()
 
-    // Immediately trigger a rebuild if one was requested during this build.
-    if (this.buildQueued) {
-      this.buildQueued = false
-      this.rebuild()
+    try {
+      await spawnAsync({
+        cmd: path.join(rsSrcPath, 'build.sh'),
+        onStdout: (s) => console.log(`rs stdout: ${s.trimEnd()}`),
+        onStderr: (s) => console.log(`rs stderr: ${s.trimEnd()}`),
+      }).promise
+    } catch (err) {
+      console.log(`Rust build error: ${err}`)
     }
+
+    const elapsed = time.current() - start
+    console.log(`Rust build completed in ${elapsed.toFixed(3)}s`)
   }
 
   private async rebuildAssets(buildVersion: string): Promise<void> {
@@ -151,16 +147,22 @@ class DevDaemon {
       this.server.kill()
     }
 
-    this.server = spawn('node', [path.join(serverOutputPath, 'main.js')])
-    this.server.stdout.on('data', (data) =>
-      console.log(trimNewlineSuffix(data).toString()),
-    )
-    this.server.stderr.on('data', (data) =>
-      console.log(trimNewlineSuffix(data).toString()),
-    )
+    const spawn = spawnAsync({
+      cmd: 'node',
+      args: [path.join(serverOutputPath, 'main.js')],
+      onStdout: (s) => console.log(s.trimEnd()),
+      onStderr: (s) => console.log(s.trimEnd()),
+    })
+    this.server = spawn.proc
+    spawn.promise.catch((err) => {
+      if (err instanceof SignalError && err.signal === 'SIGTERM') {
+        // Ignore SIGTERM, which the dev server uses to kill the game server.
+        return
+      }
+      throw err
+    })
   }
 }
 
 const daemon = new DevDaemon()
 daemon.start()
-

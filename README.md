@@ -22,7 +22,7 @@ Start the dev server:
 make
 ```
 
-The dev server will rebuild and restart the game if it detects changes to the `src/` directory.
+The dev server will rebuild and restart the game if it detects changes to the `src/` and `rs/` directories.
 
 ## Directory structure
 
