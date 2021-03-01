@@ -1,5 +1,3 @@
-mod debug_panic;
-
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{WebGlProgram, WebGlRenderingContext, WebGlShader};
@@ -10,7 +8,8 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 #[wasm_bindgen(start)]
 pub fn start() -> Result<(), JsValue> {
-    debug_panic::set_panic_hook();
+    #[cfg(feature = "console_error_panic_hook")]
+    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
 
     let document = web_sys::window().unwrap().document().unwrap();
     let canvas = document.get_element_by_id("canvas").unwrap();
