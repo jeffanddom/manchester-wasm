@@ -1,3 +1,4 @@
 out/*
 rs/*
 src/gen/rs/*
+jest.config.js
