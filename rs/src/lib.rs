@@ -1,6 +1,8 @@
+use std::{cell::RefCell, rc::Rc};
+
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::{WebGlProgram, WebGlRenderingContext, WebGlShader};
+use web_sys::{WebGl2RenderingContext, WebGlProgram, WebGlShader};
 
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
@@ -16,26 +18,32 @@ pub fn start() -> Result<(), JsValue> {
     let canvas: web_sys::HtmlCanvasElement = canvas.dyn_into::<web_sys::HtmlCanvasElement>()?;
 
     let context = canvas
-        .get_context("webgl")?
+        .get_context("webgl2")?
         .unwrap()
-        .dyn_into::<WebGlRenderingContext>()?;
+        .dyn_into::<WebGl2RenderingContext>()?;
 
     let vert_shader = compile_shader(
         &context,
-        WebGlRenderingContext::VERTEX_SHADER,
-        r#"
-        attribute vec4 position;
+        WebGl2RenderingContext::VERTEX_SHADER,
+        r#"#version 300 es
+        in vec3 position;
+        in vec3 color;
+        out vec3 outcolor;
         void main() {
-            gl_Position = position;
+            gl_Position = vec4(position, 1.0);
+            outcolor = color;
         }
     "#,
     )?;
     let frag_shader = compile_shader(
         &context,
-        WebGlRenderingContext::FRAGMENT_SHADER,
-        r#"
+        WebGl2RenderingContext::FRAGMENT_SHADER,
+        r#"#version 300 es
+        precision mediump float;
+        in vec3 outcolor;
+        out vec4 fcolor;
         void main() {
-            gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
+            fcolor = vec4(outcolor, 1.0);
         }
     "#,
     )?;
@@ -44,8 +52,8 @@ pub fn start() -> Result<(), JsValue> {
 
     let vertices: [f32; 9] = [-0.7, -0.7, 0.0, 0.7, -0.7, 0.0, 0.0, 0.7, 0.0];
 
-    let buffer = context.create_buffer().ok_or("failed to create buffer")?;
-    context.bind_buffer(WebGlRenderingContext::ARRAY_BUFFER, Some(&buffer));
+    let pos_buffer = context.create_buffer().ok_or("failed to create buffer")?;
+    context.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&pos_buffer));
 
     // Note that `Float32Array::view` is somewhat dangerous (hence the
     // `unsafe`!). This is creating a raw view into our module's
@@ -59,28 +67,79 @@ pub fn start() -> Result<(), JsValue> {
         let vert_array = js_sys::Float32Array::view(&vertices);
 
         context.buffer_data_with_array_buffer_view(
-            WebGlRenderingContext::ARRAY_BUFFER,
+            WebGl2RenderingContext::ARRAY_BUFFER,
             &vert_array,
-            WebGlRenderingContext::STATIC_DRAW,
+            WebGl2RenderingContext::STATIC_DRAW,
         );
     }
 
-    context.vertex_attrib_pointer_with_i32(0, 3, WebGlRenderingContext::FLOAT, false, 0, 0);
+    context.vertex_attrib_pointer_with_i32(0, 3, WebGl2RenderingContext::FLOAT, false, 0, 0);
     context.enable_vertex_attrib_array(0);
 
-    context.clear_color(0.0, 0.0, 0.0, 1.0);
-    context.clear(WebGlRenderingContext::COLOR_BUFFER_BIT);
+    let color_buffer = context
+        .create_buffer()
+        .ok_or("failed to create color buffer")?;
+    context.bind_buffer(WebGl2RenderingContext::ARRAY_BUFFER, Some(&color_buffer));
+    context.vertex_attrib_pointer_with_i32(1, 3, WebGl2RenderingContext::FLOAT, false, 0, 0);
+    context.enable_vertex_attrib_array(1);
 
-    context.draw_arrays(
-        WebGlRenderingContext::TRIANGLES,
-        0,
-        (vertices.len() / 3) as i32,
-    );
+    context.clear_color(0.0, 0.0, 0.0, 1.0);
+
+    let f = Rc::new(RefCell::new(None));
+    let g = f.clone();
+    let mut colors: [f32; 9] = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+
+    *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
+        request_animation_frame(f.borrow().as_ref().unwrap());
+
+        context.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT);
+
+        for i in 0..colors.len() {
+            let j = (i + 1) % colors.len();
+            if colors[i].abs() < 0.0005 {
+                continue;
+            }
+            if colors[j].abs() < 0.0005 && (colors[i] - 1.0).abs() > 0.0005 {
+                continue;
+            }
+            colors[i] -= 0.01;
+            colors[j] += 0.01;
+        }
+
+        unsafe {
+            let color_arr = js_sys::Float32Array::view(&colors);
+
+            context.buffer_data_with_array_buffer_view(
+                WebGl2RenderingContext::ARRAY_BUFFER,
+                &color_arr,
+                WebGl2RenderingContext::DYNAMIC_DRAW,
+            );
+        }
+
+        context.draw_arrays(
+            WebGl2RenderingContext::TRIANGLES,
+            0,
+            (vertices.len() / 3) as i32,
+        );
+    }) as Box<dyn FnMut()>));
+
+    request_animation_frame(g.borrow().as_ref().unwrap());
+
     Ok(())
 }
 
+fn window() -> web_sys::Window {
+    web_sys::window().expect("no global `window` exists")
+}
+
+fn request_animation_frame(f: &Closure<dyn FnMut()>) {
+    window()
+        .request_animation_frame(f.as_ref().unchecked_ref())
+        .expect("should register `requestAnimationFrame` OK");
+}
+
 pub fn compile_shader(
-    context: &WebGlRenderingContext,
+    context: &WebGl2RenderingContext,
     shader_type: u32,
     source: &str,
 ) -> Result<WebGlShader, String> {
@@ -91,7 +150,7 @@ pub fn compile_shader(
     context.compile_shader(&shader);
 
     if context
-        .get_shader_parameter(&shader, WebGlRenderingContext::COMPILE_STATUS)
+        .get_shader_parameter(&shader, WebGl2RenderingContext::COMPILE_STATUS)
         .as_bool()
         .unwrap_or(false)
     {
@@ -104,7 +163,7 @@ pub fn compile_shader(
 }
 
 pub fn link_program(
-    context: &WebGlRenderingContext,
+    context: &WebGl2RenderingContext,
     vert_shader: &WebGlShader,
     frag_shader: &WebGlShader,
 ) -> Result<WebGlProgram, String> {
@@ -117,7 +176,7 @@ pub fn link_program(
     context.link_program(&program);
 
     if context
-        .get_program_parameter(&program, WebGlRenderingContext::LINK_STATUS)
+        .get_program_parameter(&program, WebGl2RenderingContext::LINK_STATUS)
         .as_bool()
         .unwrap_or(false)
     {
