@@ -34,23 +34,24 @@ export const webEntrypoints = [
 
 const webWasmPlugin: esbuild.Plugin = {
   name: 'wasm',
-  setup(build) {
-    // Resolve ".wasm" files to a path with a namespace
-    build.onResolve({ filter: /\.wasm$/ }, args => {
-      if (args.resolveDir === '') {
-        return // Ignore unresolvable paths
+  setup: (build) => {
+    build.onResolve({ filter: /\.wasm$/ }, (args) => {
+      if (path.isAbsolute(args.path)) {
+        return { namespace: 'wasm', path: args.path }
       }
-      return {
-        path: path.isAbsolute(args.path) ? args.path : path.join(args.resolveDir, args.path),
-          namespace: 'wasm-binary',
+
+      if (args.path.startsWith('~/')) {
+        return {
+          namespace: 'wasm',
+          path: path.join(jsSrcPath, args.path.substr(2)),
+        }
       }
+
+      return { namespace: 'wasm', path: path.join(args.resolveDir, args.path) }
     })
 
-    // Virtual modules in the "wasm-binary" namespace contain the
-    // actual bytes of the WebAssembly file. This uses esbuild's
-    // built-in "binary" loader instead of manually embedding the
-    // binary data inside JavaScript code ourselves.
-    build.onLoad({ filter: /.*/, namespace: 'wasm-binary' }, async (args) => ({
+    // use binary loader for wasm files
+    build.onLoad({ filter: /.*/, namespace: 'wasm' }, async (args) => ({
       contents: await fs.promises.readFile(args.path),
       loader: 'binary',
     }))
@@ -73,7 +74,7 @@ export const webBuildOpts: esbuild.BuildOptions = {
   outdir: webOutputPath,
   sourcemap: true,
   target: ['chrome88', 'firefox84', 'safari14'],
-  plugins: [webWasmPlugin]
+  plugins: [webWasmPlugin],
 }
 
 export const serverBuildOpts: esbuild.BuildOptions = {
@@ -120,5 +121,3 @@ export async function writeServerBuildVersion(
   )
   await fs.promises.writeFile(serverBuildVersionPath, buildVersion)
 }
-
-
